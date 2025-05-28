@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Restaurant Chatbot</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f0f2f5;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    h2 {
+      text-align: center;
+      color: #333;
+      margin-bottom: 20px;
+    }
+
+    #chatbox {
+      width: 100%;
+      max-width: 700px;
+      padding: 20px;
+      background: #ffffff;
+      border: 1px solid #ccc;
+      height: 500px;
+      overflow-y: auto;
+      white-space: pre-line;
+      border-radius: 10px;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.05);
+    }
+
+    .message {
+      margin: 10px 0;
+      padding: 10px 15px;
+      border-radius: 15px;
+      max-width: 80%;
+      word-wrap: break-word;
+    }
+
+    .user {
+      text-align: right;
+      background-color: #cce5ff;
+      color: #004085;
+      margin-left: auto;
+    }
+
+    .bot {
+      text-align: left;
+      background-color: #d4edda;
+      color: #155724;
+      margin-right: auto;
+    }
+
+    #inputArea {
+      margin-top: 20px;
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      max-width: 700px;
+      width: 100%;
+    }
+
+    input {
+      flex: 1;
+      padding: 12px 15px;
+      font-size: 16px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    input:focus {
+      border-color: #007bff;
+    }
+
+    button {
+      padding: 12px 20px;
+      font-size: 16px;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+
+    button:hover {
+      background-color: #0056b3;
+    }
+  </style>
+</head>
+<body>
+  <h2>🤖 Restaurant Reservation Chatbot</h2>
+  <div id="chatbox"></div>
+  <div id="inputArea">
+    <input type="text" id="userInput" placeholder="Type your message..." />
+    <button onclick="handleSend()">Send</button>
+  </div>
+
+  <script>
+    const chatbox = document.getElementById("chatbox");
+    const input = document.getElementById("userInput");
+    input.addEventListener("keydown", function (event) {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        handleSend();
+      }
+    });
+
+    let conversationState = {
+      intent: null,
+      entities: {},
+      pendingField: null,
+      awaitingSlot: false,
+      availableSlots: [],
+      recommendations: [],
+      recommendationsShown: false,
+      cancelBookingIdsShown: false,  // NEW: track if bookings listed for cancel
+    };
+
+    const requiredFields = {
+      booking: ["city", "cuisine", "restaurant_name", "date", "number_of_people", "contact_name", "contact_email", "contact_number"],
+      cancel: ["contact_name", "contact_email", "contact_number", "booking_id"]
+    };
+
+    function addMessage(text, sender) {
+      const div = document.createElement("div");
+      div.className = `message ${sender}`;
+      div.textContent = text;
+      chatbox.appendChild(div);
+      chatbox.scrollTop = chatbox.scrollHeight;
+    }
+
+    function handleSend() {
+      const text = input.value.trim();
+      if (!text) return;
+      addMessage(text, "user");
+      input.value = "";
+
+      if (conversationState.pendingField) {
+        conversationState.entities[conversationState.pendingField] = text;
+        conversationState.pendingField = null;
+        continueFlow();
+        return;
+      }
+
+      if (conversationState.awaitingSlot) {
+        const slotIndex = parseInt(text) - 1;
+        if (!isNaN(slotIndex) && slotIndex >= 0 && slotIndex < conversationState.availableSlots.length) {
+          const slot = conversationState.availableSlots[slotIndex];
+          conversationState.awaitingSlot = false;
+          bookSlot(slot);
+        } else {
+          addMessage("❌ Invalid slot. Please enter a valid number.", "bot");
+        }
+        return;
+      }
+
+      detectIntent(text);
+    }
+
+    async function detectIntent(text) {
+      try {
+        const res = await fetch("http://localhost:8000/intent", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user_input: text })
+        });
+        const data = await res.json();
+
+        conversationState.intent = data.intent;
+        conversationState.entities = typeof data.entities === 'string' ? JSON.parse(data.entities) : data.entities || {};
+        conversationState.recommendationsShown = false;
+        conversationState.cancelBookingIdsShown = false;  // reset on new input
+
+        if (data.intent === "greeting") {
+          addMessage("👋 Hello! How can I assist you with your restaurant booking today?", "bot");
+        } else {
+          continueFlow();
+        }
+      } catch (e) {
+        console.error(e);
+        addMessage("⚠️ Failed to connect to backend.", "bot");
+      }
+    }
+
+    function continueFlow() {
+      const fields = requiredFields[conversationState.intent] || [];
+
+      if (conversationState.intent === "booking") {
+        const entities = conversationState.entities;
+        if (entities.city && entities.cuisine && !entities.restaurant_name && !conversationState.recommendationsShown) {
+          conversationState.recommendationsShown = true;
+          showRecommendations();
+          return;
+        }
+      }
+
+      if (conversationState.intent === "cancel") {
+        // After collecting contact_name, contact_email, contact_number but before booking_id, list bookings
+        const e = conversationState.entities;
+        const hasContactInfo = e.contact_name && e.contact_email && e.contact_number;
+        if (hasContactInfo && !conversationState.cancelBookingIdsShown) {
+          listUserBookings(e.contact_name, e.contact_email, e.contact_number);
+          return; // wait for bookings to show and then ask booking_id
+        }
+      }
+
+      for (const field of fields) {
+        if (!conversationState.entities[field]) {
+          askForField(field);
+          return;
+        }
+      }
+
+      if (conversationState.intent === "booking") {
+        fetchAvailableSlots();
+      } else if (conversationState.intent === "cancel") {
+        cancelBooking();
+      } else {
+        addMessage("🤖 Sorry, I didn't understand that. Please try again.", "bot");
+        resetState();
+      }
+    }
+
+    function askForField(field) {
+      const prompts = {
+        city: "🌆 Which city are you in?",
+        cuisine: "🍽️ What cuisine do you prefer?",
+        restaurant_name: "🏠 Enter the restaurant name or ID:",
+        date: "📅 Enter the booking date (YYYY-MM-DD):",
+        number_of_people: "👥 How many people?",
+        contact_name: "🧑 What is your full name?",
+        contact_email: "📧 What is your email?",
+        contact_number: "📱 What is your contact number?",
+        booking_id: "🆔 Please enter your booking ID to cancel:"
+      };
+      addMessage(prompts[field] || `Please enter ${field}:`, "bot");
+      conversationState.pendingField = field;
+    }
+
+    async function listUserBookings(name, email, number) {
+  addMessage("🔍 Fetching your bookings...", "bot");
+  try {
+    const res = await fetch("http://localhost:8000/bookings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contact_name: name,
+        contact_email: email,
+        contact_number: number
+      })
+    });
+
+    const data = await res.json();
+
+    if (data.bookings && data.bookings.length > 0) {
+      let message = "📝 Your current bookings:\n";
+      data.bookings.forEach((b, idx) => {
+        message += `${idx + 1}. Booking ID: ${b.booking_id}, Restaurant: ${b.name} (ID: ${b.restaurant_id}), Date: ${b.date}, Slot: ${b.time_slot}\n`;
+      });
+      addMessage(message, "bot");
+    } else {
+      addMessage("ℹ️ You have no current bookings.", "bot");
+    }
+
+    conversationState.cancelBookingIdsShown = true;
+    // Now ask for booking_id
+    askForField("booking_id");
+
+  } catch (e) {
+    console.error(e);
+    addMessage("⚠️ Failed to fetch your bookings.", "bot");
+    resetState();
+  }
+}
+
+
+    async function showRecommendations() {
+      const { city, cuisine } = conversationState.entities;
+      addMessage("🔍 Looking for recommendations...", "bot");
+
+      try {
+        const res = await fetch("http://localhost:8000/recommendations", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user_query: `${cuisine} restaurants in ${city}`, city, cuisine })
+        });
+
+        const data = await res.json();
+
+        if (!data.recommendations || data.recommendations.length === 0) {
+          addMessage("😔 Sorry, no recommendations found for that city and cuisine.", "bot");
+          resetState();
+          return;
+        }
+
+        data.recommendations.forEach((item, idx) => {
+          const cuisineText = Array.isArray(item.cuisines) ? item.cuisines.join(", ") : (item.cuisine || "Not specified");
+          const featuresText = Array.isArray(item.features) ? item.features.join(", ") : (item.features || "Not specified");
+
+          addMessage(
+            `${idx + 1}. ${item.name} (ID: ${item.restaurant_id || item.id}) - ${item.city}\n` +
+            `Cuisine: ${cuisineText}\n` +
+            `Features: ${featuresText}`,
+            "bot"
+          );
+        });
+
+        conversationState.recommendations = data.recommendations;
+        askForField("restaurant_name");
+      } catch (e) {
+        console.error(e);
+        addMessage("⚠️ Failed to fetch recommendations.", "bot");
+        resetState();
+      }
+    }
+
+    async function fetchAvailableSlots() {
+      const { restaurant_name, date } = conversationState.entities;
+      let restaurantId = restaurant_name;
+
+      if (conversationState.recommendations) {
+        const matched = conversationState.recommendations.find(
+          r => r.restaurant_id == restaurant_name || r.id == restaurant_name || (r.name && r.name.toLowerCase() === restaurant_name.toLowerCase())
+        );
+        if (matched) restaurantId = matched.restaurant_id || matched.id;
+      }
+
+      addMessage("🔍 Checking available slots...", "bot");
+
+      try {
+        const res = await fetch("http://localhost:8000/availability", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ restaurant_id: restaurantId, date })
+        });
+
+        const data = await res.json();
+
+        if (!data.available_slots || data.available_slots.length === 0) {
+          addMessage("❌ No available slots for this date. Please pick another date or restaurant.", "bot");
+          resetState();
+          return;
+        }
+
+        conversationState.availableSlots = data.available_slots;
+        addMessage("Available slots:\n" + data.available_slots.map((slot, idx) => `${idx + 1}. ${slot}`).join("\n"), "bot");
+        addMessage("Please select a slot by entering the slot number:", "bot");
+        conversationState.awaitingSlot = true;
+      } catch (e) {
+        console.error(e);
+        addMessage("⚠️ Failed to fetch available slots.", "bot");
+        resetState();
+      }
+    }
+
+    async function bookSlot(slot) {
+  const e = conversationState.entities;
+  let restaurantId = e.restaurant_name;
+
+  if (conversationState.recommendations) {
+    const matched = conversationState.recommendations.find(
+      r => r.restaurant_id == e.restaurant_name || r.id == e.restaurant_name || (r.name && r.name.toLowerCase() === e.restaurant_name.toLowerCase())
+    );
+    if (matched) restaurantId = matched.restaurant_id || matched.id;
+  }
+
+  const bookingPayload = {
+    restaurant_id: restaurantId,
+    date: e.date,
+    slot,
+    number_of_people: e.number_of_people,
+    contact_name: e.contact_name,
+    contact_email: e.contact_email,
+    contact_number: e.contact_number
+  };
+
+  addMessage("⏳ Booking your slot...", "bot");
+
+  try {
+    const res = await fetch("http://localhost:8000/book", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(bookingPayload)
+    });
+
+    const data = await res.json();
+
+    if (data.success) {
+      addMessage(`✅ Booking confirmed! Your booking ID is ${data.booking_id}`, "bot");
+    } else {
+      addMessage("❌ Booking failed: " + (data.message || "Unknown error."), "bot");
+    }
+
+    resetState();
+
+  } catch (e) {
+    console.error(e);
+    addMessage("⚠️ Failed to complete booking. Please try again later.", "bot");
+    resetState();
+  }
+}
+
+
+    async function cancelBooking() {
+      const e = conversationState.entities;
+
+      if (!e.booking_id) {
+        askForField("booking_id");
+        return;
+      }
+
+      addMessage("⏳ Cancelling your booking...", "bot");
+
+      try {
+        const res = await fetch("http://localhost:8000/cancel", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            booking_id: e.booking_id,
+            contact_name: e.contact_name,
+            contact_email: e.contact_email,
+            contact_number: e.contact_number
+          })
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          addMessage("✅ Booking cancelled successfully.", "bot");
+        } else {
+          addMessage("Booking cancelation failed.", "bot");
+        }
+      } catch (e) {
+        console.error(e);
+        addMessage("⚠️ Cancellation request failed.", "bot");
+      }
+      resetState();
+    }
+
+    function resetState() {
+      conversationState = {
+        intent: null,
+        entities: {},
+        pendingField: null,
+        awaitingSlot: false,
+        availableSlots: [],
+        recommendations: [],
+        recommendationsShown: false,
+        cancelBookingIdsShown: false,
+      };
+    }
+
+    // Initial greeting
+    addMessage("🤖 Hello! I am your restaurant reservation assistant. How can I help you today?", "bot");
+  </script>
+</body>
+</html>
