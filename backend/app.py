@@ -16,7 +16,7 @@ app = FastAPI()
 
 # Allow CORS for frontend to call this API
 origins = [
-    "https://restaurant-reservation-chi-umber.vercel.app"
+    "https://restaurant-reservation-775lvhp1a-yashik-khannas-projects.vercel.app/"
 ]
 
 app.add_middleware(
