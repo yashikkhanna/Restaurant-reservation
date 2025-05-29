@@ -1,13 +1,14 @@
 import psycopg2
-
+import os
 # Database connection setup
 conn = psycopg2.connect(
-    dbname="sarvamAI_DB",
-    user="postgres",
-    password="Toshik@121",
-    host="localhost",
-    port="5432"
+    dbname=os.getenv("DB_NAME"),
+    user=os.getenv("DB_USER"),
+    password=os.getenv("DB_PASSWORD"),
+    host=os.getenv("DB_HOST"),
+    port=os.getenv("DB_PORT", 5432)
 )
+
 cursor = conn.cursor()
 
 def make_booking(restaurant_id, user_name, contact_number, email, date, slot):
