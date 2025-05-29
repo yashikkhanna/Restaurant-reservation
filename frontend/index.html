@@ -166,7 +166,7 @@
 
     async function detectIntent(text) {
       try {
-        const res = await fetch("http://localhost:8000/intent", {
+        const res = await fetch("https://restaurant-reservation-qhce.onrender.com/intent", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ user_input: text })
@@ -247,7 +247,7 @@
     async function listUserBookings(name, email, number) {
   addMessage("🔍 Fetching your bookings...", "bot");
   try {
-    const res = await fetch("http://localhost:8000/bookings", {
+    const res = await fetch("https://restaurant-reservation-qhce.onrender.com/bookings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -286,7 +286,7 @@
       addMessage("🔍 Looking for recommendations...", "bot");
 
       try {
-        const res = await fetch("http://localhost:8000/recommendations", {
+        const res = await fetch("https://restaurant-reservation-qhce.onrender.com/recommendations", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ user_query: `${cuisine} restaurants in ${city}`, city, cuisine })
@@ -335,7 +335,7 @@
       addMessage("🔍 Checking available slots...", "bot");
 
       try {
-        const res = await fetch("http://localhost:8000/availability", {
+        const res = await fetch("https://restaurant-reservation-qhce.onrender.com/availability", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ restaurant_id: restaurantId, date })
@@ -384,7 +384,7 @@
   addMessage("⏳ Booking your slot...", "bot");
 
   try {
-    const res = await fetch("http://localhost:8000/book", {
+    const res = await fetch("https://restaurant-reservation-qhce.onrender.com/book", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(bookingPayload)
@@ -419,7 +419,7 @@
       addMessage("⏳ Cancelling your booking...", "bot");
 
       try {
-        const res = await fetch("http://localhost:8000/cancel", {
+        const res = await fetch("https://restaurant-reservation-qhce.onrender.com/cancel", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
