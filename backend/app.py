@@ -15,14 +15,10 @@ import json
 app = FastAPI()
 
 # Allow CORS for frontend to call this API
-origins = [
-    "https://restaurant-reservation-775lvhp1a-yashik-khannas-projects.vercel.app/"
-]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,  # ✅ Must be False if allow_origins=["*"]
     allow_methods=["*"],
     allow_headers=["*"],
 )
