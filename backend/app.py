@@ -15,9 +15,13 @@ import json
 app = FastAPI()
 
 # Allow CORS for frontend to call this API
+origins = [
+    "https://restaurant-reservation-chi-umber.vercel.app"
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Adjust in production
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
